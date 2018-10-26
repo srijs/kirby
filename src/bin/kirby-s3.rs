@@ -23,14 +23,13 @@ use std::io::BufRead;
 use std::io::BufReader;
 use std::io::Cursor;
 
-fn read_object(bucket_name: &str, key: &str) -> Box<BufRead> {
+fn read_object(client: &S3Client, bucket_name: &str, key: &str) -> Box<BufRead> {
   let get_req = GetObjectRequest {
     bucket: bucket_name.to_owned(),
     key: key.to_owned(),
     ..Default::default()
   };
 
-  let client = S3Client::new(Region::UsWest2);
   let result = client
     .get_object(get_req)
     .sync()
@@ -49,7 +48,7 @@ fn read_object(bucket_name: &str, key: &str) -> Box<BufRead> {
   }
 }
 
-fn write_object(bucket_name: &str, key: &str, body: &str) -> rusoto_s3::PutObjectOutput {
+fn write_object(client: &S3Client, bucket_name: &str, key: &str, body: &str) -> rusoto_s3::PutObjectOutput {
   let req = PutObjectRequest {
     bucket: bucket_name.to_owned(),
     key: key.to_owned(),
@@ -57,14 +56,15 @@ fn write_object(bucket_name: &str, key: &str, body: &str) -> rusoto_s3::PutObjec
     ..Default::default()
   };
 
-  let client = S3Client::new(Region::UsWest2);
   client.put_object(req).sync().expect("Couldn't PUT object")
 }
 
 fn main() {
   lambda::logger::init();
 
-  lambda::start(|input: S3Event| {
+  let s3_client = S3Client::new(Region::UsWest2);
+
+  lambda::start(move |input: S3Event| {
     let opts = Options {
       paths: vec![],
       verbose: false,
@@ -80,7 +80,7 @@ fn main() {
             &bucket_name,
             &key
           );
-          let reader = read_object(&bucket_name, &key);
+          let reader = read_object(&s3_client, &bucket_name, &key);
 
           info!("{} calculating stats...", time::now_utc().rfc3339());
           let content = stream_stats(reader, &opts);
@@ -93,7 +93,7 @@ fn main() {
             time::now_utc().rfc3339(),
             &result_key
           );
-          write_object(&bucket_name, &result_key, &json!(content).to_string());
+          write_object(&s3_client, &bucket_name, &result_key, &json!(content).to_string());
 
           info!("{} done with {}", time::now_utc().rfc3339(), &key);
         }
